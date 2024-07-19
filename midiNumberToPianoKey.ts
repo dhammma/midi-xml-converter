@@ -1,6 +1,8 @@
 import { PianoKey } from "./PianoKey";
 
 export const PIANO_KEY_BY_MIDI_NUMBER: Record<number, PianoKey> = {
+  // PAUSE
+  0: "P",
   // 0-th octave
   21: "A0",
   22: "A#0",

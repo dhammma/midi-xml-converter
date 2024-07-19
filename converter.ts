@@ -38,11 +38,51 @@ const jsObject = z
   .parse(xmlObject);
 
 interface PianoNote {
+  startInWholes: number;
   startInTicks: number;
   pianoKey: PianoKey;
   durationInTicks?: number;
   durationInWholes?: number;
 }
+
+const DURATION_BY_WHOLE = new Map<number, string>([
+  [1.5, "1."],
+  [1, "1"],
+  [(1 / 2) * 1.5, "2."],
+  [1 / 2, "2"],
+  [(1 / 4) * 1.5, "4."],
+  [1 / 4, "4"],
+  [(1 / 8) * 1.5, "8."],
+  [1 / 8, "8"],
+  [(1 / 16) * 1.5, "16."],
+  [1 / 16, "16"],
+  [(1 / 32) * 1.5, "32."],
+  [1 / 32, "32"],
+]);
+const DURATIONS = [...DURATION_BY_WHOLE.keys()];
+
+const breakdownNoteByDuration = (note: PianoNote) => {
+  const result: PianoNote[] = [];
+  let remaingingNoteDuration = note.durationInWholes!;
+
+  let durationIndex = 0;
+  let offsetInWholes = 0;
+  while (remaingingNoteDuration > 0) {
+    if (DURATIONS[durationIndex] >= note.durationInWholes!) {
+      result.push({
+        ...note,
+        startInWholes: note.startInWholes + offsetInWholes,
+        durationInWholes: DURATIONS[durationIndex],
+      });
+      offsetInWholes += DURATIONS[durationIndex];
+      remaingingNoteDuration -= DURATIONS[durationIndex];
+    } else {
+      durationIndex--;
+    }
+  }
+
+  return result;
+};
 
 const tracks = jsObject.MIDIFile.Track.map((itemTrack) => {
   const trackOpenedNotes = new Map<PianoKey, PianoNote>();
@@ -73,6 +113,7 @@ const tracks = jsObject.MIDIFile.Track.map((itemTrack) => {
 
       const note: PianoNote = {
         startInTicks: currentPos,
+        startInWholes: currentPos / jsObject.MIDIFile.TicksPerBeat / 4,
         pianoKey: PIANO_KEY_BY_MIDI_NUMBER[midiNumber],
       };
       trackOpenedNotes.set(pianoKey, note);
@@ -146,7 +187,9 @@ const trackVoices = tracks.map((itemTrack) => {
       throw new Error(`Can't find the voice for note`);
     }
 
-    voice.push(itemNote);
+    const notesBreakDown = breakdownNoteByDuration(itemNote);
+
+    voice.push(...notesBreakDown);
   });
   return voices;
 });
@@ -160,11 +203,40 @@ trackVoices.forEach((itemVoice, indexTrack) => {
       console.log(`-----voice ${voiceIndex + 1}`);
       console.log(
         itemVoice
-          .map((itemNote) => {
-            const durationTextToken = itemNote.durationInWholes!;
-            const pianoKeyTextToken = itemNote.pianoKey.toLowerCase();
+          .map((itemNote, index) => {
+            let pauseText = "";
+            const prevNote = itemVoice[index - 1];
+            const deltaInWholes =
+              prevNote &&
+              itemNote.startInWholes -
+                prevNote.startInWholes -
+                prevNote.durationInWholes!;
 
-            return `${durationTextToken}${pianoKeyTextToken}`;
+            if (deltaInWholes) {
+              // insert pauses
+              const pauseNokiaDuration = DURATION_BY_WHOLE.get(
+                itemNote.durationInWholes!
+              )!;
+              pauseText = [
+                pauseNokiaDuration.replace(".", ""),
+                "p",
+                pauseNokiaDuration.endsWith(".") ? "." : "",
+                ",",
+              ].join("");
+            }
+            const nokiaDuration = DURATION_BY_WHOLE.get(
+              itemNote.durationInWholes!
+            )!;
+            const durationTextToken = nokiaDuration.replace(".", "");
+            const pianoKeyTextToken = itemNote.pianoKey.toLowerCase();
+            const pointTextToken = nokiaDuration.endsWith(".") ? "." : "";
+
+            return [
+              pauseText,
+              durationTextToken,
+              pianoKeyTextToken,
+              pointTextToken,
+            ].join("");
           })
           .join(",")
       );
